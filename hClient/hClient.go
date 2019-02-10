@@ -2,66 +2,83 @@ package main
 
 import (
 	"bufio"
+	"encoding/gob"
 	"log"
 	"net"
-	"os"
 	"strings"
+	"time"
 )
 
 var name string
 
-func open(address string) (net.Conn, error) {
-	var client net.Conn
-	var err error
-	var attempts int
+type serverDetails struct {
+	Name     string
+	Channels []string
+	Clients  []string
+}
+
+type connection struct {
+	name    string
+	conn    net.Conn
+	rw      *bufio.ReadWriter
+	details serverDetails
+}
+
+func (c *connection) listen() {
+	cwr := bufio.NewReadWriter(bufio.NewReader(c.conn), bufio.NewWriter(c.conn))
+	cgob := gob.NewDecoder(c.conn)
 	for {
-		client, err = net.Dial("tcp", address)
-		if err != nil {
-			if attempts != 5 {
-				attempts++
+		log.Println(">> Checking for incoming messages")
+		msg, _ := cwr.ReadString('\n')
+		msg = strings.Trim(msg, "\n")
+		switch msg {
+		case "SERVERDETAILS":
+			log.Println(">> Incoming GOB")
+			err := cgob.Decode(&c.details)
+			if err != nil {
+				log.Println(err)
 				continue
-			} else {
-				return nil, err
 			}
+			log.Println(">> Received server details")
+			log.Println(">> ", c.details)
+		case "STRINGMESSAGE":
+			log.Println(">> Incoming string")
+			strmsg, err := cwr.ReadString('\n')
+			if err != nil {
+				log.Println(">> " + err.Error())
+				continue
+			}
+			strmsg = strings.Trim(strmsg, "\n")
+			log.Println(">> Receive string message")
+			log.Println(">> " + strmsg)
 		}
-		return client, nil
 	}
 }
 
-func client(address string) {
-	var client net.Conn
-	var err error
+func (c *connection) sendStringMsg(msg string) {
+	c.rw.WriteString("STRINGMESSAGE\n")
+	c.rw.WriteString(msg + "\n")
+	c.rw.Flush()
+}
 
-	client, err = open(address)
-	defer client.Close()
-	if err != nil {
-		log.Println(">> Failed to connect --- " + err.Error())
-		return
+func createConnection(name string, address string) connection {
+	conn, _ := net.Dial("tcp", "localhost:8888")
+	rwconn := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
+	myclient := connection{
+		name:    name,
+		conn:    conn,
+		rw:      rwconn,
+		details: serverDetails{},
 	}
-	log.Println(">> Connected to " + client.RemoteAddr().String())
-	go func() {
-		for {
-			msg, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-			chw := bufio.NewWriter(client)
-			chw.WriteString(name + msg)
-			chw.Flush()
-		}
-	}()
-	func() {
-		for {
-			msg, err := bufio.NewReader(client).ReadString('\n')
-			if err != nil {
-				log.Println(">> Could not read from buffer --- " + err.Error())
-				break
-			}
-			msg = strings.Trim(msg, "\n")
-			log.Println(">> " + msg)
-		}
-	}()
+	go myclient.listen()
+	return myclient
 }
 
 func main() {
-	name = "dedo678"
-	client("localhost:8888")
-
+	myclient := createConnection("Dedo", "localhost:8888")
+	time.Sleep(time.Second)
+	myclient.rw.WriteString("Dedo\n")
+	myclient.rw.Flush()
+	for {
+	}
 }
