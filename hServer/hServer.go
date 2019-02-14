@@ -1,9 +1,7 @@
 package main
 
 func main() {
-	myServer := NewServer("My Server")
-	myServer.StartConn()
-	for {
+	myserv := newServer("My Server")
+	myserv.listen()
 
-	}
 }
